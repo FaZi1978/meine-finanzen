@@ -4,6 +4,16 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Meine Finanzen</title>
+<!-- Als App installierbar (Startbildschirm Android/iPhone) -->
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<meta name="theme-color" content="#3b5bdb">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Finanzen">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="application-name" content="Meine Finanzen">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%233b5bdb'/%3E%3Ctext x='32' y='44' font-size='38' font-family='Segoe UI,Arial' font-weight='700' text-anchor='middle' fill='white'%3E%E2%82%AC%3C/text%3E%3C/svg%3E">
 <style>
   :root {
@@ -190,7 +200,8 @@
   /* Sperrbildschirm */
   #lock { position: fixed; inset: 0; background: var(--bg); display: none; align-items: center; justify-content: center; padding: 16px; z-index: 100; }
   body.locked #lock { display: flex; }
-  body.locked > .wrap, body.locked > dialog { display: none !important; }
+  body.locked > .wrap, body.locked > dialog:not(#installDialog) { display: none !important; }
+  #installDialog { z-index: 200; }
   .lock-card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); padding: 28px 24px; width: 100%; max-width: 360px; text-align: center; }
   .lock-err { color: var(--out); font-size: 14px; min-height: 1.2em; margin-top: 8px; }
   #pwFields input { margin-bottom: 8px; }
@@ -266,6 +277,10 @@
   }
   @media (max-width: 520px) { .stat .v { font-size: 19px; } .hide-sm { display: none; } }
   /* Buchungstabelle: Text darf umbrechen; notfalls seitlich innerhalb der Karte scrollen statt die Seite zu verbreitern */
+  .install-btn { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+  #installSteps ol { margin: 0; padding-left: 20px; }
+  #installSteps li { margin: 6px 0; }
+  #installSteps .key { display: inline-block; border: 1px solid var(--line); border-radius: 6px; padding: 0 6px; background: var(--bg); }
   .list-more { text-align: center; margin-top: 10px; }
   .list-more button { width: 100%; max-width: 260px; color: var(--accent); font-weight: 600; }
   .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
@@ -305,6 +320,7 @@
     <button class="primary" type="submit" id="lockBtn" hidden style="width:100%; margin-top:12px">Entsperren</button>
     <p class="muted" id="lockWarn" hidden style="font-size:13px; margin:12px 0 0; text-align:left">⚠️ Merk dir das Passwort gut. Ohne Passwort lassen sich deine Daten <b>nicht wiederherstellen</b>, von niemandem. Deine Daten werden damit verschlüsselt (AES-256).</p>
     <button type="button" class="ghost" id="lockForgot" hidden style="margin-top:10px; font-size:13px">Passwort vergessen?</button>
+    <button type="button" id="installBtnLock" class="install-btn" hidden style="margin-top:14px; width:100%">📲 Als App auf dem Startbildschirm installieren</button>
   </form>
 </div>
 <div class="wrap">
@@ -462,6 +478,7 @@
         <button id="exportJson">Backup speichern (JSON)</button>
         <button id="importJson">Backup laden</button>
         <button id="exportCsv">Monat als CSV</button>
+        <button id="installBtn" class="install-btn" hidden>📲 Als App installieren</button>
         <button id="changePw">🔑 Passwort ändern</button>
         <button id="resetAll" class="danger">Alles zurücksetzen</button>
         <input type="file" id="fileInput" accept=".json,application/json" hidden>
@@ -528,6 +545,15 @@
 </dialog>
 
 <div id="printArea"></div>
+
+<dialog id="installDialog">
+  <form method="dialog">
+    <h2>📲 App installieren</h2>
+    <div id="installSteps"></div>
+    <p class="muted" style="font-size:13px; margin:12px 0 0">Danach startest du „Meine Finanzen“ wie eine normale App über das Symbol mit dem €-Zeichen, im Vollbild und auch ohne Internet. Deine Daten bleiben verschlüsselt auf dem Handy.</p>
+    <div style="display:flex; justify-content:flex-end; margin-top:14px"><button value="ok" class="primary">Verstanden</button></div>
+  </form>
+</dialog>
 
 <dialog id="pwDialog">
   <form method="dialog" id="pwForm" autocomplete="off">
@@ -2183,6 +2209,48 @@
     ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'].forEach(t => document.addEventListener(t, bumpIdle, { passive: true }));
     bumpIdle();
   }
+
+  // ---------- Als App installieren (PWA) ----------
+  const isWeb = location.protocol === 'https:' || location.hostname === 'localhost';
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  const isMobile = isIOS || /android/i.test(navigator.userAgent) || window.matchMedia('(pointer: coarse)').matches;
+  let installPrompt = null;
+  function updateInstallButtons() {
+    const show = isWeb && !isStandalone() && (installPrompt || isMobile);
+    $('installBtn').hidden = !show; $('installBtnLock').hidden = !show;
+  }
+  if (isWeb && 'serviceWorker' in navigator) {
+    // Service Worker: Voraussetzung fürs Installieren und für den Start ohne Internet
+    window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+  }
+  window.addEventListener('beforeinstallprompt', ev => { ev.preventDefault(); installPrompt = ev; updateInstallButtons(); });
+  window.addEventListener('appinstalled', () => { installPrompt = null; updateInstallButtons(); });
+  async function doInstall() {
+    if (installPrompt) {
+      // Android/Chrome/Edge: echter Installationsdialog des Browsers
+      installPrompt.prompt();
+      try { await installPrompt.userChoice; } catch (e) {}
+      installPrompt = null; updateInstallButtons();
+      return;
+    }
+    // Sonst Schritt-für-Schritt-Anleitung (iPhone/iPad: nur über „Teilen“ möglich)
+    $('installSteps').innerHTML = isIOS
+      ? `<p style="margin-top:0">Auf dem iPhone/iPad geht das über Safari:</p><ol>
+          <li>Diese Seite in <b>Safari</b> öffnen (nicht in der Google- oder Instagram-App).</li>
+          <li>Unten auf <span class="key">Teilen ⬆︎</span> tippen.</li>
+          <li>Nach unten scrollen und <b>„Zum Home-Bildschirm“</b> wählen.</li>
+          <li>Oben rechts auf <b>„Hinzufügen“</b> tippen.</li></ol>`
+      : `<p style="margin-top:0">In Chrome auf Android:</p><ol>
+          <li>Oben rechts auf das Menü <span class="key">⋮</span> tippen.</li>
+          <li><b>„App installieren“</b> oder <b>„Zum Startbildschirm hinzufügen“</b> wählen.</li>
+          <li>Mit <b>„Installieren“</b> bestätigen.</li></ol>
+          <p class="muted" style="font-size:13px">Erscheint der Punkt nicht, lade die Seite einmal neu und warte ein paar Sekunden. In Samsung Internet heißt er „Seite hinzufügen zu → Startbildschirm“.</p>`;
+    $('installDialog').showModal();
+  }
+  $('installBtn').onclick = doInstall;
+  $('installBtnLock').onclick = doInstall;
+  updateInstallButtons();
 
   // ---------- Start ----------
   (function boot() {
